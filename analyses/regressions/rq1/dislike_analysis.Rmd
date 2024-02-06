@@ -1,0 +1,124 @@
+---
+title: "dislike_analysis"
+output: html_document
+date: '2022-03-07'
+---
+
+```{r setup, include=FALSE}
+library(dplyr)
+library(ggplot2)
+library(toffee)
+library(lme4)
+library(tidyr)
+library(xtable)
+library(MuMIn)
+library(broom)
+library(broom.mixed)
+
+make_model_tbl <- function(model){
+  tidy(model) %>%
+    mutate(star = ifelse(p.value < 0.05, "*", "")) %>%
+    mutate(O.R. = exp(estimate)) %>%
+    mutate(p.value = ifelse(p.value < 0.001, "<0.001", as.character(round(p.value, 3)))) %>%
+    mutate(p.value = paste0(p.value, star)) %>%
+    mutate(C.I. = CI_fmt(estimate, std.error)) %>%
+    dplyr::select(term, O.R., C.I., p.value)
+}
+```
+
+```{r loading data}
+data = read.csv('../ad_dislike_data.csv')
+data_harms <- read.csv('../ad_dislike_data_harms.csv')
+# tar_data <- read.csv('adid_targeting.csv')
+```
+
+```{r number of ads by code}
+codes_only <- c('opportunity', 'healthcare', 'sensitive', 'financial',
+'prohibited', 'harmful', 'clickbait')
+print(colSums(data[,codes_only]))
+```
+
+```{r dislike based on ad being harmful vs. general dislike}
+# does scam, prohibited and clickbait lead to dislike based on scam-related reasons?
+# scam_dislike = ["unclear", "pushy", "clickbait", "scam", "uncomfortable"]
+dislike_deceptive = glm(scam_dislike ~ prohibited + harmful + clickbait + code_other, data=data_harms, family=binomial())
+toffee_tbl(dislike_deceptive)
+
+# consolidate prohibited, harmful and clickbait into one category
+data_harms_bin <- data_harms %>%
+    mutate(deceptive = as.integer(data_harms$prohibited | data_harms$clickbait | data_harms$harmful)) %>%
+    select(-c("prohibited", "clickbait", "harmful"))
+dislike_deceptive_bin = glm(scam_dislike ~ deceptive + code_other, data=data_harms_bin, family=binomial())
+toffee_tbl(dislike_deceptive_bin)
+
+# other_dislike = ["irrelevant", "dislike-product", "dislike-design", "political", "dislike-advertiser"]
+dislike_general = glm(other_dislike ~ prohibited + harmful + clickbait + code_other, data=data_harms, family=binomial())
+toffee_tbl(dislike_general)
+
+dislike_general_bin = glm(other_dislike ~ deceptive + code_other, data=data_harms_bin, family=binomial())
+toffee_tbl(dislike_general_bin)
+```
+
+```{r multi-level models of dislike}
+dislike_deceptive_mlm = lme4::glmer(scam_dislike ~ prohibited + harmful + clickbait + code_other + (1|pid),
+                                    data=data_harms, family=binomial())
+toffee_tbl(dislike_deceptive_mlm)
+
+dislike_deceptive_bin_mlm  = lme4::glmer(scam_dislike ~ deceptive + code_other + (1|pid),
+                                 data=data_harms_bin, family=binomial())
+toffee_tbl(dislike_deceptive_bin_mlm)
+# EUREKA!
+
+# also see if this is valid on general dislike
+data_harms_bin_gd <- data_harms_bin %>%
+    mutate(dislike = as.integer(scam_dislike | other_dislike)) %>%
+    select(-c("scam_dislike", "other_dislike"))
+general_dislike_deceptive_mlm = lme4::glmer(dislike ~ deceptive + code_other + (1|pid),
+                                            data=data_harms_bin_gd, family=binomial())
+toffee_tbl(general_dislike_deceptive_mlm)
+
+# other_dislike = ["irrelevant", "dislike-product", "dislike-design", "political", "dislike-advertiser"]
+dislike_general_mlm = lme4::glmer(other_dislike ~ prohibited + harmful + clickbait + code_other + (1|pid),
+                          data=data_harms, family=binomial())
+toffee_tbl(dislike_general_mlm)
+
+dislike_general_bin_mlm = lme4::glmer(other_dislike ~ deceptive + code_other + (1|pid),
+                          data=data_harms_bin, family=binomial())
+toffee_tbl(dislike_general_bin_mlm)
+```
+
+```{r modeling dislike, but with sensitive ads}
+dislike_harms_mlm <- lme4::glmer(
+    scam_dislike ~ prohibited + harmful + clickbait + sensitive + code_other + (1|pid),
+    data=data_harms, family = binomial()
+)
+toffee_tbl(dislike_harms_mlm)
+
+dislike_harms_simple_mlm <- lme4::glmer(
+    scam_dislike ~ deceptive + sensitive + code_other + (1|pid),
+    data=data_harms_bin, family=binomial()
+)
+toffee_tbl(dislike_harms_simple_mlm)
+```
+
+
+```{r descriptive analyses of scam dislike}
+# what if we simply ask what fraction of deceptive ads are scam_disliked vs. the others?
+# number of deceptive ads scam_disliked vs. other ads scam_disliked
+deceptive_disliked <- table(data_harms_bin %>% filter(deceptive == 1) %>% select(scam_dislike))
+
+# === 3 comparisons below ===
+library(gmodels)
+
+disliked_ads <- data_harms_bin %>%
+    filter((scam_dislike | other_dislike) == TRUE)
+
+# 1. general dislike in deceptive vs. others
+CrossTable(data_harms_bin$deceptive, as.integer(data_harms_bin$other_dislike | data_harms_bin$scam_dislike), dnn=c("deceptive", "dislike"), prop.c=FALSE, prop.t=FALSE, chisq=TRUE, prop.chisq=FALSE)
+
+# 2. scam dislike in deceptive vs. others
+CrossTable(disliked_ads$deceptive, disliked_ads$scam_dislike, dnn=c("deceptive", "scam related dislike"), prop.c=FALSE, prop.t=FALSE, chisq=TRUE, prop.chisq=FALSE)
+
+# 3. non-scam dislike in deceptive vs. others
+CrossTable(disliked_ads$deceptive, disliked_ads$other_dislike, dnn=c("deceptive", "non-scam related dislike"), prop.c=FALSE, prop.t=FALSE, chisq=TRUE, prop.chisq=FALSE)
+```

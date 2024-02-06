@@ -1,0 +1,210 @@
+---
+title: "DemographicDifference"
+output: html_document
+date: '2023-01-27'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(toffee)
+library(xtable)
+
+make_model_tbl <- function(model){
+  tidy(model) %>%
+    mutate(star = ifelse(p.value < 0.05, "*", "")) %>%
+    mutate(O.R. = exp(estimate)) %>%
+    mutate(p.value = ifelse(p.value < 0.001, "<0.001", as.character(round(p.value, 3)))) %>%
+    mutate(p.value = paste0(p.value, star)) %>%
+    mutate(C.I. = CI_fmt(estimate, std.error)) %>%
+    dplyr::select(term, estimate, C.I., p.value)
+}
+```
+
+```{r load data}
+counts_data <- read.csv("../data/harmful_counts_df.csv")
+dems_data <- read.csv("../data/ALLDEMS.csv")
+ad_counts.dems <- merge(counts_data, dems_data, by="pid") %>%
+    mutate(p_problematic = harmful_grouped / total) %>%
+    mutate(p_neutral = neutral / total) %>%
+    mutate(p_healthcare = healthcare / total) %>%
+    mutate(p_opportunity = opportunity / total) %>%
+    mutate(p_prohibited = prohibited / total) %>%
+    mutate(p_deceptive = deceptive / total) %>%
+    mutate(p_clickbait = clickbait / total) %>%
+    mutate(p_financial = financial / total) %>%
+    mutate(p_sensitive = sensitive / total) %>%
+    mutate(race = as.factor(case_when(
+        black == 1 ~ 2,
+        asian == 1 ~ 3,
+        white == 1 ~ 1,
+    ))) %>%
+    mutate(race = relevel(race, 1))
+```
+
+```{r train linear models}
+# TODO: think about how Piotr's model is set up, and why I'm doing things differently
+# Piotr's model: woman ~ clickbait + deceptive + sensitive + ... (each row is an ad)
+# my model: p_clickbait ~ woman + asian + black + ... (each row is a participant)
+
+# mod.frac_problematic.old <- lm(p_problematic ~ woman + white + black + hispanic + asian + high_ed + older, data=ad_counts.dems)
+# new versions of model have race adjusted as factors
+mod.frac_problematic <- lm(p_problematic ~ woman + as.factor(race) + hispanic + high_ed + older, data=ad_counts.dems)
+
+# mod.frac_prohibited.old <- lm(p_prohibited ~ woman + white + black + hispanic + asian + high_ed + older, data=ad_counts.dems)
+mod.frac_prohibited <- lm(p_prohibited ~ woman + as.factor(race) + hispanic + high_ed + older, data=ad_counts.dems)
+
+# mod.frac_deceptive.old <- lm(p_deceptive ~ woman + white + black + hispanic + asian + high_ed + older, data=ad_counts.dems)
+mod.frac_deceptive <- lm(p_deceptive ~ woman + as.factor(race) + hispanic + high_ed + older, data=ad_counts.dems)
+
+# mod.frac_clickbait.old <- lm(p_clickbait ~ woman + white + black + hispanic + asian + high_ed + older, data=ad_counts.dems)
+mod.frac_clickbait <- lm(p_clickbait ~ woman + as.factor(race) + hispanic + high_ed + older, data=ad_counts.dems)
+
+# mod.frac_financial.old <- lm(p_financial ~ woman + white + black + hispanic + asian + high_ed + older, data=ad_counts.dems)
+mod.frac_financial <- lm(p_financial ~ woman + as.factor(race) + hispanic + high_ed + older, data=ad_counts.dems)
+
+# mod.frac_sensitive.old <- lm(p_sensitive ~ woman + white + black + hispanic + asian + high_ed + older, data=ad_counts.dems)
+mod.frac_sensitive <- lm(p_sensitive ~ woman + as.factor(race) + hispanic + high_ed + older, data=ad_counts.dems)
+
+# NOTE: put healthcare and opportunity in different table
+# mod.frac_healthcare.old <- lm(p_healthcare ~ woman + white + black + hispanic + asian + high_ed + older, data=ad_counts.dems)
+mod.frac_healthcare <- lm(p_healthcare ~ woman + as.factor(race) + hispanic + high_ed + older, data=ad_counts.dems)
+
+# mod.frac_opportunity.old <- lm(p_opportunity ~ woman + white + black + hispanic + asian + high_ed + older, data=ad_counts.dems)
+mod.frac_opportunity <- lm(p_opportunity ~ woman + as.factor(race) + hispanic + high_ed + older, data=ad_counts.dems)
+```
+
+```{r stitch together for output}
+omnibus.model.params <- tidy(mod.frac_problematic) %>%
+    select(cols) %>%
+    mutate(estimate.omnibus = case_when(
+        p.value < 0.001 ~ paste0("\\textbf{", as.character(round(estimate, 3)), "}$^{***}$"),
+        p.value < 0.01 ~ paste0("\\textbf{", as.character(round(estimate, 3)), "}$^{**}$"),
+        p.value < 0.05 ~ paste0("\\textbf{", as.character(round(estimate, 3)), "}$^*$"),
+        p.value <= 0.1 ~ paste0(as.character(round(estimate, 3)), "$^+$"),
+        TRUE ~ as.character(round(estimate, 3)))) %>%
+    # add confidence interval column
+    mutate(CI = toffee_tbl(mod.frac_problematic)$CI) %>%
+    # put CI below estimate
+    mutate(estimate.omnibus = paste0("\\shortstack{", estimate.omnibus,
+                                        "\\\\ \\scriptsize{", CI ,"}}")) %>%
+    select(-CI, -p.value, -estimate)
+
+prohibited.model.params <- tidy(mod.frac_prohibited) %>%
+    select(cols) %>%
+    mutate(estimate.prohibited = case_when(
+        p.value < 0.001 ~ paste0("\\textbf{", as.character(round(estimate, 3)), "}$^{***}$"),
+        p.value < 0.01 ~ paste0("\\textbf{", as.character(round(estimate, 3)), "}$^{**}$"),
+        p.value < 0.05 ~ paste0("\\textbf{", as.character(round(estimate, 3)), "}$^*$"),
+        p.value <= 0.1 ~ paste0(as.character(round(estimate, 3)), "$^+$"),
+        TRUE ~ as.character(round(estimate, 3)))) %>%
+    mutate(CI = toffee_tbl(mod.frac_prohibited)$CI) %>%
+    mutate(estimate.prohibited = paste0("\\shortstack{", estimate.prohibited,
+                                        "\\\\ \\scriptsize{", CI ,"}}")) %>%
+    select(-CI, -p.value, -estimate)
+
+deceptive.model.params <- tidy(mod.frac_deceptive) %>%
+    select(cols) %>%
+    mutate(estimate.deceptive = case_when(
+        p.value < 0.001 ~ paste0("\\textbf{", as.character(round(estimate, 3)), "}$^{***}$"),
+        p.value < 0.01 ~ paste0("\\textbf{", as.character(round(estimate, 3)), "}$^{**}$"),
+        p.value < 0.05 ~ paste0("\\textbf{", as.character(round(estimate, 3)), "}$^*$"),
+        p.value <= 0.1 ~ paste0(as.character(round(estimate, 3)), "$^+$"),
+        TRUE ~ as.character(round(estimate, 3)))) %>%
+    mutate(CI = toffee_tbl(mod.frac_deceptive)$CI) %>%
+    mutate(estimate.deceptive = paste0("\\shortstack{", estimate.deceptive,
+                                        "\\\\ \\scriptsize{", CI ,"}}")) %>%
+    select(-CI, -p.value, -estimate)
+
+clickbait.model.params <- tidy(mod.frac_clickbait) %>%
+    select(cols) %>%
+    mutate(estimate.clickbait = case_when(
+        p.value < 0.001 ~ paste0("\\textbf{", as.character(round(estimate, 3)), "}$^{***}$"),
+        p.value < 0.01 ~ paste0("\\textbf{", as.character(round(estimate, 3)), "}$^{**}$"),
+        p.value < 0.05 ~ paste0("\\textbf{", as.character(round(estimate, 3)), "}$^*$"),
+        p.value <= 0.1 ~ paste0(as.character(round(estimate, 3)), "$^+$"),
+        TRUE ~ as.character(round(estimate, 3)))) %>%
+    mutate(CI = toffee_tbl(mod.frac_clickbait)$CI) %>%
+    mutate(estimate.clickbait = paste0("\\shortstack{", estimate.clickbait,
+                                        "\\\\ \\scriptsize{", CI ,"}}")) %>%
+    select(-CI, -p.value, -estimate)
+
+financial.model.params <- tidy(mod.frac_financial) %>%
+    select(cols) %>%
+    mutate(estimate.financial = case_when(
+        p.value < 0.001 ~ paste0("\\textbf{", as.character(round(estimate, 3)), "}$^{***}$"),
+        p.value < 0.01 ~ paste0("\\textbf{", as.character(round(estimate, 3)), "}$^{**}$"),
+        p.value < 0.05 ~ paste0("\\textbf{", as.character(round(estimate, 3)), "}$^*$"),
+        p.value <= 0.1 ~ paste0(as.character(round(estimate, 3)), "$^+$"),
+        TRUE ~ as.character(round(estimate, 3)))) %>%
+    mutate(CI = toffee_tbl(mod.frac_financial)$CI) %>%
+    mutate(estimate.financial = paste0("\\shortstack{", estimate.financial,
+                                        "\\\\ \\scriptsize{", CI ,"}}")) %>%
+    select(-CI, -p.value, -estimate)
+
+sensitive.model.params <- tidy(mod.frac_sensitive) %>%
+    select(cols) %>%
+    mutate(estimate.sensitive = case_when(
+        p.value < 0.001 ~ paste0("\\textbf{", as.character(round(estimate, 3)), "}$^{***}$"),
+        p.value < 0.01 ~ paste0("\\textbf{", as.character(round(estimate, 3)), "}$^{**}$"),
+        p.value < 0.05 ~ paste0("\\textbf{", as.character(round(estimate, 3)), "}$^*$"),
+        p.value <= 0.1 ~ paste0(as.character(round(estimate, 3)), "$^+$"),
+        TRUE ~ as.character(round(estimate, 3)))) %>%
+    mutate(CI = toffee_tbl(mod.frac_sensitive)$CI) %>%
+    mutate(estimate.sensitive = paste0("\\shortstack{", estimate.sensitive,
+                                        "\\\\ \\scriptsize{", CI ,"}}")) %>%
+    select(-CI, -p.value, -estimate)
+
+# ===== combine together =====
+params.list <- list(omnibus.model.params, prohibited.model.params, deceptive.model.params, 
+                    clickbait.model.params, financial.model.params, sensitive.model.params)
+all.params.problematic <- Reduce(function(x, y, ...) merge(x, y, by='term', ...), params.list)
+print(xtable(
+    all.params.problematic %>%
+    select(term, estimate.omnibus, estimate.prohibited, estimate.deceptive, 
+           estimate.clickbait, estimate.financial, estimate.sensitive)
+), sanitize.text.function=identity)
+# ==== R^2 values ====
+print(paste0(summary(mod.frac_problematic)$r.squared, '&', summary(mod.frac_prohibited)$r.squared,
+      '&', summary(mod.frac_deceptive)$r.squared, '&', summary(mod.frac_clickbait)$r.squared, '&',
+      summary(mod.frac_financial)$r.squared, '&',
+      summary(mod.frac_sensitive)$r.squared))
+```
+
+```{r show healthcare and opportunity model coefficients}
+healthcare.model.params <- tidy(mod.frac_healthcare) %>%
+    select(cols) %>%
+    mutate(estimate.healthcare = case_when(
+        p.value < 0.001 ~ paste0("\\textbf{", as.character(round(estimate, 3)), "}$^{***}$"),
+        p.value < 0.01 ~ paste0("\\textbf{", as.character(round(estimate, 3)), "}$^{**}$"),
+        p.value < 0.05 ~ paste0("\\textbf{", as.character(round(estimate, 3)), "}$^*$"),
+        p.value <= 0.1 ~ paste0(as.character(round(estimate, 3)), "$^+$"),
+        TRUE ~ as.character(round(estimate, 3)))) %>%
+    mutate(CI = toffee_tbl(mod.frac_healthcare)$CI) %>%
+    mutate(estimate.healthcare = paste0("\\shortstack{", estimate.healthcare,
+                                        "\\\\ \\scriptsize{", CI ,"}}")) %>%
+    select(-CI, -p.value, -estimate)
+
+opportunity.model.params <- tidy(mod.frac_opportunity) %>%
+    select(cols) %>%
+    mutate(estimate.opportunity = case_when(
+        p.value < 0.001 ~ paste0("\\textbf{", as.character(round(estimate, 3)), "}$^{***}$"),
+        p.value < 0.01 ~ paste0("\\textbf{", as.character(round(estimate, 3)), "}$^{**}$"),
+        p.value < 0.05 ~ paste0("\\textbf{", as.character(round(estimate, 3)), "}$^*$"),
+        p.value <= 0.1 ~ paste0(as.character(round(estimate, 3)), "$^+$"),
+        TRUE ~ as.character(round(estimate, 3)))) %>%
+    mutate(CI = toffee_tbl(mod.frac_opportunity)$CI) %>%
+    mutate(estimate.opportunity = paste0("\\shortstack{", estimate.opportunity,
+                                        "\\\\ \\scriptsize{", CI ,"}}")) %>%
+    select(-CI, -p.value, -estimate)
+
+# ===== combine together =====
+params.list <- list(healthcare.model.params, opportunity.model.params)
+all.params.other <- Reduce(function(x, y, ...) merge(x, y, by='term', ...), params.list)
+print(xtable(
+    all.params.other %>%
+    select(term, estimate.healthcare, estimate.opportunity)
+), sanitize.text.function=identity)
+# ==== R^2 values ====
+print(paste0(summary(mod.frac_healthcare)$r.squared, '&', summary(mod.frac_opportunity)$r.squared))
+```

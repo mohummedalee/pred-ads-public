@@ -1,0 +1,241 @@
+---
+title: "dislike_analysis_usenix23"
+output: html_document
+date: '2022-12-19'
+---
+
+```{r setup, include=FALSE}
+library(dplyr)
+library(ggplot2)
+library(toffee)
+library(lme4)
+library(tidyr)
+library(xtable)
+library(insight)
+library(parameters)
+library(MuMIn)
+library(broom)
+library(broom.mixed)
+library(optimx)
+
+make_model_tbl <- function(model){
+  tidy(model) %>%
+    mutate(star = ifelse(p.value < 0.05, "*", "")) %>%
+    mutate(O.R. = exp(estimate)) %>%
+    mutate(p.value = ifelse(p.value < 0.001, "<0.001", as.character(round(p.value, 3)))) %>%
+    mutate(p.value = paste0(p.value, star)) %>%
+    mutate(C.I. = CI_fmt(estimate, std.error)) %>%
+    dplyr::select(term, O.R., C.I., p.value)
+}
+```
+
+```{r loading data}
+fpath = '~/Documents/gitlab/pred-ads/analyses/regressions/ad_dislike_data_full.csv'
+fpath_ali = '../ad_dislike_data_full.csv'
+dislike_data <- read.csv(fpath_ali) %>%
+    dplyr::mutate(problematic = as.integer(deceptive | prohibited | clickbait | financial | sensitive)) %>%
+    filter(dislike_general == 1)
+```
+
+#Overall dislike reasons
+- political, pushy, scam
+
+```{r relation dislike:problematic}
+# NOTE: filtering out healthcare and opportunity because we don't want them in these comparisons
+# only neutral vs. problematic should be happening
+
+problematic_neutral_only = dislike_data %>% filter(problematic>0 | neutral>0) 
+
+model.omnibus <- lme4::glmer(problematic ~ dislike_irrelevant + dislike_clickbait + dislike_product +
+    dislike_uncomfortable + dislike_political + dislike_unclear + dislike_pushy + dislike_scam +
+    dislike_design + dislike_advertiser + (1|pid), family=binomial(), data=problematic_neutral_only)
+
+# model_parameters(model.omnibus, exponentiate=TRUE)
+
+# ALI: the intercept is significant
+# ELISSA: in descriptive models, intercept is not particularly relevant to consider. it just tells you things about the odds that an ad is problematic given that none of the dislike reasons are true; the significance just says the odds that an ad is problematic are significantly different than 0. None of the above is relevant to your RQ about which dislike reasons are correlated with problematic ads.
+```
+#Notes on clickbait
+- political, pushy
+```{r relation dislike:clickbait}
+sub_neutral_clickbait <- dislike_data %>% filter(neutral>0 | clickbait>0)
+
+model.clickbait <- lme4::glmer(clickbait ~ dislike_irrelevant + dislike_clickbait + dislike_product +
+    dislike_uncomfortable + dislike_political + dislike_unclear + dislike_pushy + dislike_scam +
+    dislike_design + dislike_advertiser + (1|pid), family=binomial(), data=sub_neutral_clickbait)
+
+# model_parameters(model.clickbait, exponentiate=TRUE)
+```
+#Notes on deceptive
+- political, pushy, design
+
+```{r relation dislike:deceptive}
+sub_neutral_deceptive <- dislike_data %>% filter(neutral>0 | deceptive>0)
+
+model.deceptive <- lme4::glmer(deceptive ~ dislike_irrelevant + dislike_clickbait + dislike_product +
+    dislike_uncomfortable + dislike_political + dislike_unclear + dislike_pushy + dislike_scam +
+    dislike_design + dislike_advertiser + (1|pid), family=binomial(), data=sub_neutral_deceptive,control = glmerControl(optimizer ='optimx', optCtrl=list(method='nlminb'))
+)
+
+# ERROR: this is failing, "Invalid grouping factor specification, pid"
+#fixed with a non-linear optimizer, ignore the warning it generates, it is overzealous per the developer
+
+# model_parameters(model.deceptive, exponentiate=TRUE)
+```
+
+#Prohibited results
+- Note: You only have 85 ads in this dataset that are prohibited and have a dislike label, FYI therefore the results are not strong
+- Trending toward significance (p between 0.05 and 0.1): uncomfortable, pushy, scam [IMO these trends all make sense as this is why FB would want to prohibit them!]
+- Significant: design
+```{r relation dislike:prohibited}
+sub_neutral_prohibited <- dislike_data %>% filter(neutral>0 | prohibited>0)
+
+model.prohibited <- lme4::glmer(prohibited ~ dislike_irrelevant + dislike_clickbait + dislike_product +
+    dislike_uncomfortable + dislike_political + dislike_unclear + dislike_pushy + dislike_scam +
+    dislike_design + dislike_advertiser + (1|pid), family=binomial(), data=sub_neutral_prohibited,control = glmerControl(optimizer ='optimx', optCtrl=list(method='nlminb'))
+)
+
+# model_parameters(model.prohibited, exponentiate=TRUE)
+```
+
+#Sensitive results
+- unclear, pushy, advertiser
+- trend toward sig: uncomfortable, scam
+- my interpretation: people have a lot of reasons for disliking these things and/or advertisers in this category use a lot of different types of distasteful tactics vs. some of the other cateogires where people's reasoning (and thus arguably the ad tactics) are concentrated
+```{r relation dislike:sensitive}
+sub_neutral_sensitive <- dislike_data %>% filter(neutral>0 | sensitive>0)
+
+model.sensitive <- lme4::glmer(sensitive ~ dislike_irrelevant + dislike_clickbait + dislike_product +
+    dislike_uncomfortable + dislike_political + dislike_unclear + dislike_pushy + dislike_scam +
+    dislike_design + dislike_advertiser + (1|pid), family=binomial(), data=sub_neutral_sensitive,control = glmerControl(optimizer ='optimx', optCtrl=list(method='nlminb'))
+)
+
+# model_parameters(model.sensitive, exponentiate=TRUE)
+```
+
+#Sensitive: Financial results
+- pushy, scam
+- trend: clickbait
+```{r relation dislike:financial}
+sub_neutral_financial <- dislike_data %>% filter(neutral>0 | financial>0)
+
+model.financial <- lme4::glmer(financial ~ dislike_irrelevant + dislike_clickbait + dislike_product +
+    dislike_uncomfortable + dislike_political + dislike_unclear + dislike_pushy + dislike_scam +
+    dislike_design + dislike_advertiser + (1|pid), family=binomial(), data=sub_neutral_financial,control = glmerControl(optimizer ='optimx', optCtrl=list(method='nlminb'))
+)
+
+# model_parameters(model.financial, exponentiate=TRUE)
+```
+
+```{r comparing all models together}
+cols <- c('term', 'estimate', 'p.value')
+
+# === OMNIBUS ===
+omnibus.model.params <- tidy(model.omnibus, exponentiate = TRUE) %>%
+    select(cols) %>%
+    mutate(sig = case_when(
+        p.value < 0.001 ~ "**",
+        p.value < 0.05 ~ "*",
+        p.value <= 0.1 ~ "+",
+        TRUE ~ "")) %>%
+    mutate(estimate = paste0(as.character(round(estimate, 3)), sig)) %>%
+    select(-sig) %>%
+    # rename columns for easier joining later
+    rename(estimate.omnibus = estimate, p.omnibus = p.value)
+# verified against model_parameters(model.omnibus, exponentiate = TRUE) -- looks accurate!
+
+# === CLICKBAIT ===
+clickbait.model.params <- tidy(model.clickbait, exponentiate = TRUE) %>%
+    select(cols) %>%
+    mutate(sig = case_when(
+        p.value < 0.001 ~ "**",
+        p.value < 0.05 ~ "*",
+        p.value <= 0.1 ~ "+",
+        TRUE ~ "")) %>%
+    mutate(estimate = paste0(as.character(round(estimate, 3)), sig)) %>% 
+    select(-sig) %>%
+    rename(estimate.clickbait = estimate, p.clickbait = p.value)
+
+# === DECEPTIVE ===
+deceptive.model.params <- tidy(model.deceptive, exponentiate = TRUE) %>%
+    select(cols) %>%
+    mutate(sig = case_when(
+        p.value < 0.001 ~ "**",
+        p.value < 0.05 ~ "*",
+        p.value <= 0.1 ~ "+",
+        TRUE ~ "")) %>%
+    mutate(estimate = paste0(as.character(round(estimate, 3)), sig)) %>%
+    select(-sig) %>%
+    rename(estimate.deceptive = estimate, p.deceptive = p.value)
+
+# === PROHIBITED ===
+prohibited.model.params <- tidy(model.prohibited, exponentiate = TRUE) %>%
+    select(cols) %>%
+    mutate(sig = case_when(
+        p.value < 0.001 ~ "**",
+        p.value < 0.05 ~ "*",
+        p.value <= 0.1 ~ "+",
+        TRUE ~ "")) %>%
+    mutate(estimate = paste0(as.character(round(estimate, 3)), sig)) %>%
+    select(-sig) %>%
+    rename(estimate.prohibited = estimate, p.prohibited = p.value)
+
+# === FINANCIAL ===
+financial.model.params <- tidy(model.financial, exponentiate = TRUE) %>%
+    select(cols) %>%
+    mutate(sig = case_when(
+        p.value < 0.001 ~ "**",
+        p.value < 0.05 ~ "*",
+        p.value <= 0.1 ~ "+",
+        TRUE ~ "")) %>%
+    mutate(estimate = paste0(as.character(round(estimate, 3)), sig)) %>%
+    select(-sig) %>%
+    rename(estimate.financial = estimate, p.financial = p.value)
+
+# === SENSITIVE ===
+sensitive.model.params <- tidy(model.sensitive, exponentiate = TRUE) %>%
+    select(cols) %>%
+    mutate(sig = case_when(
+        p.value < 0.001 ~ "**",
+        p.value < 0.05 ~ "*",
+        p.value <= 0.1 ~ "+",
+        TRUE ~ "")) %>%
+    mutate(estimate = paste0(as.character(round(estimate, 3)), sig)) %>%
+    select(-sig) %>%
+    rename(estimate.sensitive = estimate, p.sensitive = p.value)
+
+# merge all into one tbl to build table
+params.list <- list(omnibus.model.params, clickbait.model.params, deceptive.model.params, prohibited.model.params, financial.model.params, sensitive.model.params)
+all.params <- Reduce(function(x, y, ...) merge(x, y, by='term', ...), params.list)
+
+# TODO FUTURE:
+# (1) it could also include n and R^2 for each model
+# (2) find a way to include CI for estimates
+
+xtable(
+    all.params %>%
+    select(term, estimate.omnibus, estimate.prohibited, estimate.deceptive, estimate.clickbait, estimate.financial, estimate.sensitive)
+)
+
+# === additional robustness: show number of training points (N) ===
+print('omnibus')
+dim(problematic_neutral_only)[1]
+print('prohibited')
+dim()
+
+# === additional robustness: show conditional R^2 ===
+# note: conditional R^2 for mixed-effects models = fixed + random effects, in 2nd column
+# marginal R^2 = just fixed effects
+print('omnibus')
+MuMIn::r.squaredGLMM(model.omnibus)[,2]
+print('prohibited')
+MuMIn::r.squaredGLMM(model.prohibited)[,2]
+print('deceptive')
+MuMIn::r.squaredGLMM(model.deceptive)[,2]
+print('clickbait')
+MuMIn::r.squaredGLMM(model.clickbait)[,2]
+print('financial')
+MuMIn::r.squaredGLMM(model.financial)[,2]
+print('sensitive')
+MuMIn::r.squaredGLMM(model.sensitive)[,2]
+```

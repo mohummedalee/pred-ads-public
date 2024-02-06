@@ -1,0 +1,56 @@
+---
+title: "relevance_model_final"
+output: html_document
+date: '2022-08-09'
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(xtable)
+library(tidyr)
+library(broom)
+library(ordinal)
+library(toffee)
+make_model_tbl <- function(model){
+  tidy(model) %>%
+    mutate(star = ifelse(p.value < 0.05, "*", "")) %>%
+    mutate(O.R. = exp(estimate)) %>%
+    mutate(p.value = ifelse(p.value < 0.001, "<0.001", as.character(round(p.value, 3)))) %>%
+    mutate(p.value = paste0(p.value, star)) %>%
+    mutate(C.I. = CI_fmt(estimate, std.error)) %>%
+    dplyr::select(term, O.R., C.I., p.value)
+}
+CI_fmt <- Vectorize(function(m, se) {
+  lower <- round(exp(m - 1.96 * se), 2)
+  upper <- round(exp(m + 1.96 * se), 2)
+  paste0("[", lower, ", ", upper, "]")
+})
+
+makeCI <- function(model, sigdigits = 2) {
+  tidy(model) %>%
+    mutate(CI = CI_fmt(estimate, std.error))
+}
+```
+
+
+```{r loading data}
+data_all <- read.csv('../ad_dislike_data_harms.csv')
+data_harms <- data_all
+```
+
+
+```{r fitting CLMM model}
+relevance_adtype_int <- lme4::glmer(
+    relevance ~ prohibited + harmful + clickbait + sensitive + code_other + (1|pid),
+    data=data_harms)
+toffee_tbl(relevance_adtype_int)
+
+relevance_adtype_clmm = clmm(
+    factor(relevance) ~ prohibited + harmful + clickbait + sensitive + code_other + benign + (1|pid),
+    data = data_harms)
+make_model_tbl(relevance_adtype_clmm)
+```
+
+```{r statistical testing on }

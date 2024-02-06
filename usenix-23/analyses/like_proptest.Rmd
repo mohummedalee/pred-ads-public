@@ -1,0 +1,66 @@
+```{r proportion testing}
+# === output from like_plot.py
+# overall dislike: {'Potentially Prohibited': (64, 0.3764705882352941, 170), 'Potentially Harmful': (128, 0.43097643097643096, 297), 'Clickbait': (211, 0.42886178861788615, 492), 'Financial': (342, 0.4789915966386555, 714), 'Sensitive': (191, 0.4961038961038961, 385), 'Opportunity': (601, 0.5616822429906542, 1070), 'Healthcare': (538, 0.5729499467518637, 939), 'Benign': (2210, 0.6056453822965195, 3649)}
+
+# number of "I do not dislike this ad" in dislike reasons
+like <- c(
+    'clickbait' = 211,
+    'prohibited' = 64,
+    'deceptive' = 128,
+    'sensitive' = 191,
+    'financial' = 342,
+    'opportunity' = 601,
+    'healthcare' = 538,
+    'neutral' = 2210
+)
+
+totals <- c(
+    'clickbait' = 492,
+    'prohibited' = 170,
+    'healthcare' = 939,
+    'neutral' = 3649,
+    'sensitive' = 385,
+    'opportunity' = 1070,    
+    'financial' = 714,
+    'deceptive' = 297
+)
+
+p_o=prop.test(
+    c(like['clickbait'], like['deceptive'], like['prohibited'],
+      like['sensitive'], like['financial'], like['opportunity'],
+      like['healthcare'], like['neutral']),
+    c(totals['clickbait'], totals['deceptive'], totals['prohibited'],
+      totals['sensitive'], totals['financial'], totals['opportunity'],
+      totals['healthcare'], totals['neutral'])
+)
+# SIGNIFICANT
+
+#Pairwise comparisons decreasing sequential
+p_1=prop.test(c(like['prohibited'], like['deceptive']), c(totals['prohibited'], totals['deceptive']))
+p_2=prop.test(c(like['deceptive'], like['clickbait']), c(totals['deceptive'], totals['clickbait']))
+p_3=prop.test(c(like['clickbait'], like['financial']), c(totals['clickbait'], totals['financial']))
+p_4=prop.test(c(like['financial'], like['sensitive']), c(totals['financial'], totals['sensitive']))
+p_5=prop.test(c(like['sensitive'], like['opportunity']), c(totals['sensitive'], totals['opportunity'])) # SIGNIFICANT
+p_6=prop.test(c(like['opportunity'], like['healthcare']), c(totals['opportunity'], totals['healthcare']))
+p_7=prop.test(c(like['healthcare'], like['neutral']), c(totals['healthcare'], totals['neutral']))
+
+#adjusting omnibus and decreasing pairwise comparisons
+print("pairwise comparisons decreasing order:")
+p.adjust(c(p_o$p.value,p_1$p.value,p_2$p.value,p_3$p.value,p_4$p.value,p_5$p.value,p_6$p.value,p_7$p.value), method="BH" )
+print(paste("chi-squared vals:", p_o$statistic, p_1$statistic, p_2$statistic, p_3$statistic, p_4$statistic, p_5$statistic, p_6$statistic, p_7$statistic))
+
+
+#pairwise comparisons with neutral
+p_1=prop.test(c(like['prohibited'], like['neutral']), c(totals['prohibited'], totals['neutral']))
+p_2=prop.test(c(like['deceptive'], like['neutral']), c(totals['deceptive'], totals['neutral']))
+p_3=prop.test(c(like['clickbait'], like['neutral']), c(totals['clickbait'], totals['neutral']))
+p_5=prop.test(c(like['financial'], like['neutral']), c(totals['financial'], totals['neutral']))
+p_4=prop.test(c(like['sensitive'], like['neutral']), c(totals['sensitive'], totals['neutral']))
+p_6=prop.test(c(like['opportunity'], like['neutral']), c(totals['opportunity'], totals['neutral'])) # INSIGNIFICANT
+p_7=prop.test(c(like['healthcare'], like['neutral']), c(totals['healthcare'], totals['neutral'])) # INSIGNIFICANT
+
+#adjusting omnibus and pairwise-with-neutral comparisons
+print("pairwise comparisons against neutral:")
+p.adjust(c(p_o$p.value,p_1$p.value,p_2$p.value,p_3$p.value,p_4$p.value,p_5$p.value,p_6$p.value,p_7$p.value), method="BH" )
+print(paste("chi-squared vals:", p_o$statistic, p_1$statistic, p_2$statistic, p_3$statistic, p_4$statistic, p_5$statistic, p_6$statistic, p_7$statistic))
+```

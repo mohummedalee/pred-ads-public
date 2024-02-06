@@ -1,0 +1,60 @@
+---
+title: "global_vs_contextual_harms"
+output: html_document
+date: '2022-04-19'
+description: working with exported data from `global-vs-contextual-harms` notebook to understand how global
+harms (prohibited + clickbait + harmful) might be associated differently with demographics than contextual harms (sensitive)
+Also using additional demographics on mental health and finances, which might be very important to understand contextual harms
+---
+
+``` {r setup}
+library(dplyr)
+library(lme4)
+library(toffee)
+```
+
+```{r loading data}
+alldems <- read.csv("../../db-processing/participant-demographics/ALLDEMS.csv")
+additional_demographics <- read.csv("../../db-processing/participant-demographics/additional_dems.csv")
+harm_props <- read.csv("participant_harm_props.csv")
+```
+
+```{r global harms}
+# do standard demographics such as gender, ethnicity, age have an association with fraction of harmful ads seen?
+data_harms_alldems <- merge(alldems, harm_props, by="pid")
+global_harms_alldems_lm <- lm(global_harm_prop ~ woman + black + hispanic + older + high_ed, data=data_harms_alldems)
+global_harms_counts_alldems_lm <- lm(global_harm_counts ~ woman + black + hispanic + older + high_ed, data=data_harms_alldems)
+
+toffee_tbl(global_harms_alldems_lm)
+toffee_tbl(global_harms_counts_alldems_lm)
+
+print(paste(length(filter(data_harms_alldems, older==0)$older), "older participants"))
+print(paste(length(filter(data_harms_alldems, older==1)$older), "younger participants"))
+```
+
+```
+### Interesting Observation
+
+Older people seem to see a higher fraction of harmful content, this result persists from earlier when fraction clickbait had a significant effect on seeing clickbait.
+```
+
+```{r contextual harms}
+data_harms_additional_dems <- merge(additional_demographics, harm_props, by="pid") %>% 
+    filter(mentalhealth == 1)
+cont_harms_counts_additional_lm <- lm(cont_harms_counts ~ eating_disorder + gambling + drugs + othermentalhealth + depression, data=data_harms_additional_dems)
+
+toffee_tbl(cont_harms_counts_additional_lm)
+
+global_harms_counts_alldems_lm <- lm(cont_harms_counts ~ woman + black + hispanic + older + high_ed, data=data_harms_alldems)
+toffee_tbl(global_harms_counts_alldems_lm)
+```
+
+```{r healthcare harms}
+# healthcare harms = ads tagged sensitive+healthcare
+all_data_harms <- merge(data_harms_alldems, additional_demographics, by="pid") %>% filter(mentalhealth == 1)
+heatlh_harms_alldems_lm <- lm(healthcare_harm_counts ~ woman + black + hispanic + older + high_ed, data=data_harms_alldems)
+toffee_tbl(heatlh_harms_alldems_lm)
+
+health_harms_contextual <- lm(healthcare_harm_counts ~ woman + black + hispanic + older + high_ed + alcoholism + drugs + depression + eating_disorder, data=all_data_harms)
+toffee_tbl(health_harms_contextual)
+```

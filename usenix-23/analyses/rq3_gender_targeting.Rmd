@@ -1,0 +1,35 @@
+```{r gender prop.tests}
+
+# code, men, women, total_gender_targeted
+# =============================
+# Potentially Prohibited 27 28 213
+# Potentially Harmful 24 38 446
+# Clickbait 24 70 935     # targets women
+# Financial 34 16 1158    # targets men
+# Sensitive 28 28 584
+# Opportunity 32 95 1888
+# Healthcare 103 310 2834
+# Benign 625 1846 19444
+
+totals <- c(
+    'clickbait' = 213,
+    'prohibited' = 170,
+    'healthcare' = 939,
+    'neutral' = 3649,
+    'sensitive' = 385,
+    'opportunity' = 1070,    
+    'financial' = 714,
+    'deceptive' = 297
+)
+
+dont_like <- c(
+    'clickbait' = 241,
+    'prohibited' = 85,
+    'deceptive' = 146,
+    'sensitive' = 160,
+    'financial' = 319,
+    'opportunity' = 341,
+    'healthcare' = 292,
+    'neutral' = 1067
+)
+```

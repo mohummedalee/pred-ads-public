@@ -1,0 +1,351 @@
+---
+title: "rq1_dislike_reasons"
+output: html_document
+date: '2023-01-25'
+note: copied over from pred-ads/analyses/regressions/rq1/dislike_analysis_usenix.Rmd
+data: survey_data_full.csv is prepared by prep_all_survey_regression_data.py
+---
+
+```{r setup, include=FALSE}
+library(dplyr)
+library(ggplot2)
+library(toffee)
+library(lme4)
+library(tidyr)
+library(xtable)
+library(parameters)
+library(MuMIn)
+library(broom)
+library(broom.mixed)
+library(optimx)
+
+make_model_tbl <- function(model){
+  tidy(model) %>%
+    mutate(star = ifelse(p.value < 0.05, "*", "")) %>%
+    mutate(O.R. = exp(estimate)) %>%
+    mutate(p.value = ifelse(p.value < 0.001, "<0.001", as.character(round(p.value, 3)))) %>%
+    mutate(p.value = paste0(p.value, star)) %>%
+    mutate(C.I. = CI_fmt(estimate, std.error)) %>%
+    dplyr::select(term, O.R., C.I., p.value)
+}
+
+cols <- c('term', 'estimate', 'p.value')
+```
+
+```{r loading data}
+ survey_responses <- read.csv("../data/survey_data_full.csv") %>%
+    # more_disliked and problematic are the same thing, just different names used at different points
+    # in the development of the study
+    mutate(more_disliked = as.integer(clickbait == 1 | prohibited == 1 | sensitive ==1 | 
+                                      financial == 1 | deceptive == 1)) %>%
+    mutate(problematic = as.integer(clickbait == 1 | prohibited == 1 | sensitive ==1 | 
+                                      financial == 1 | deceptive == 1)) %>%
+    # only fit on ads that were disliked in Q2
+    filter(dislike_general == 1)
+```
+
+```{r fit all models}
+# === OMNIBUS ===
+problematic_neutral_only = survey_responses %>% filter(problematic>0 | neutral>0) 
+model.more_disliked <- lme4::glmer(problematic ~ dislike_irrelevant + dislike_clickbait + dislike_product +
+    dislike_uncomfortable + dislike_political + dislike_unclear + dislike_pushy + dislike_scam +
+    dislike_design + dislike_advertiser + (1|pid), family=binomial(), data=problematic_neutral_only)
+
+# === PROHIBITED ===
+sub_neutral_prohibited <- survey_responses %>% filter(neutral>0 | prohibited>0)
+model.prohibited <- lme4::glmer(prohibited ~ dislike_irrelevant + dislike_clickbait + dislike_product +
+    dislike_uncomfortable + dislike_political + dislike_unclear + dislike_pushy + dislike_scam +
+    dislike_design + dislike_advertiser + (1|pid), family=binomial(), data=sub_neutral_prohibited,control = glmerControl(optimizer ='optimx', optCtrl=list(method='nlminb'))
+)
+
+# === CLICKBAIT ===
+sub_neutral_clickbait <- survey_responses %>% filter(neutral>0 | clickbait>0)
+model.clickbait <- lme4::glmer(clickbait ~ dislike_irrelevant + dislike_clickbait + dislike_product + dislike_uncomfortable + dislike_political + dislike_unclear + dislike_pushy + dislike_scam + dislike_design + dislike_advertiser + (1|pid), family=binomial(), data=sub_neutral_clickbait)
+
+# === DECEPTIVE ===
+sub_neutral_deceptive <- survey_responses %>% filter(neutral>0 | deceptive>0)
+model.deceptive <- lme4::glmer(deceptive ~ dislike_irrelevant + dislike_clickbait + dislike_product +
+    dislike_uncomfortable + dislike_political + dislike_unclear + dislike_pushy + dislike_scam +
+    dislike_design + dislike_advertiser + (1|pid), family=binomial(), data=sub_neutral_deceptive,control = glmerControl(optimizer ='optimx', optCtrl=list(method='nlminb'))
+)
+
+# === SENSITIVE ===
+sub_neutral_sensitive <- survey_responses %>% filter(neutral>0 | sensitive>0)
+model.sensitive <- lme4::glmer(sensitive ~ dislike_irrelevant + dislike_clickbait + dislike_product +
+    dislike_uncomfortable + dislike_political + dislike_unclear + dislike_pushy + dislike_scam +
+    dislike_design + dislike_advertiser + (1|pid), family=binomial(), data=sub_neutral_sensitive,control = glmerControl(optimizer ='optimx', optCtrl=list(method='nlminb'))
+)
+
+# === FINANCIAL ===
+sub_neutral_financial <- survey_responses %>% filter(neutral>0 | financial>0)
+model.financial <- lme4::glmer(financial ~ dislike_irrelevant + dislike_clickbait + dislike_product +
+    dislike_uncomfortable + dislike_political + dislike_unclear + dislike_pushy + dislike_scam +
+    dislike_design + dislike_advertiser + (1|pid), family=binomial(), data=sub_neutral_financial,control = glmerControl(optimizer ='optimx', optCtrl=list(method='nlminb'))
+)
+
+# === OPPORTUNITY AND HEALTHCARE ===
+neutral_healthcare_only = survey_responses %>% filter(neutral > 0 | healthcare > 0)
+model.healthcare <- lme4::glmer(healthcare ~ dislike_irrelevant + dislike_clickbait + dislike_product +
+    dislike_uncomfortable + dislike_political + dislike_unclear + dislike_pushy + dislike_scam +
+    dislike_design + dislike_advertiser + (1|pid), family=binomial(), data=neutral_healthcare_only)
+
+neutral_opportunity_only = survey_responses %>% filter(opportunity > 0 | neutral > 0)
+model.opportunity <- lme4::glmer(opportunity ~ dislike_irrelevant + dislike_clickbait + dislike_product +
+    dislike_uncomfortable + dislike_political + dislike_unclear + dislike_pushy + dislike_scam +
+    dislike_design + dislike_advertiser + (1|pid), family=binomial(), data=neutral_opportunity_only)
+```
+
+
+```{r run this for inspecting p.values}
+model.prohibited.params <- tidy(model.prohibited, exponentiate = TRUE) %>%
+    select(cols) %>%
+    mutate(sig = case_when(
+        p.value < 0.001 ~ "***", p.value < 0.01 ~ "**", p.value < 0.05 ~ "*", p.value <= 0.1 ~ "+",
+        TRUE ~ "")) %>%
+    mutate(CI = toffee_tbl(model.prohibited)$CI) %>%
+    mutate(estimate = paste0(as.character(round(estimate, 3)), sig)) %>%
+    select(-sig) %>%
+    rename(estimate.prohibited = estimate, p.prohibited = p.value, ci.prohibited = CI)
+
+model.deceptive.params <- tidy(model.deceptive, exponentiate = TRUE) %>%
+    select(cols) %>%
+    mutate(sig = case_when(
+        p.value < 0.001 ~ "***", p.value < 0.01 ~ "**", p.value < 0.05 ~ "*", p.value <= 0.1 ~ "+",
+        TRUE ~ "")) %>%
+    mutate(CI = toffee_tbl(model.deceptive)$CI) %>%
+    mutate(estimate = paste0(as.character(round(estimate, 3)), sig)) %>%
+    select(-sig) %>%
+    rename(estimate.deceptive = estimate, p.deceptive = p.value, ci.deceptive = CI)
+
+model.clickbait.params <- tidy(model.clickbait, exponentiate = TRUE) %>%
+    select(cols) %>%
+    mutate(sig = case_when(
+        p.value < 0.001 ~ "***", p.value < 0.01 ~ "**", p.value < 0.05 ~ "*", p.value <= 0.1 ~ "+",
+        TRUE ~ "")) %>%
+    mutate(CI = toffee_tbl(model.clickbait)$CI) %>%
+    mutate(estimate = paste0(as.character(round(estimate, 3)), sig)) %>%
+    select(-sig) %>%
+    rename(estimate.clickbait = estimate, p.clickbait = p.value, ci.clickbait = CI)
+
+model.financial.params <- tidy(model.financial, exponentiate = TRUE) %>%
+    select(cols) %>%
+    mutate(sig = case_when(
+        p.value < 0.001 ~ "***", p.value < 0.01 ~ "**", p.value < 0.05 ~ "*", p.value <= 0.1 ~ "+",
+        TRUE ~ "")) %>%
+    mutate(CI = toffee_tbl(model.financial)$CI) %>%
+    mutate(estimate = paste0(as.character(round(estimate, 3)), sig)) %>%
+    select(-sig) %>%
+    rename(estimate.financial = estimate, p.financial = p.value, ci.financial = CI)
+
+model.sensitive.params <- tidy(model.sensitive, exponentiate = TRUE) %>%
+    select(cols) %>%
+    mutate(sig = case_when(
+        p.value < 0.001 ~ "***", p.value < 0.01 ~ "**", p.value < 0.05 ~ "*", p.value <= 0.1 ~ "+",
+        TRUE ~ "")) %>%
+    mutate(CI = toffee_tbl(model.sensitive)$CI) %>%
+    mutate(estimate = paste0(as.character(round(estimate, 3)), sig)) %>%
+    select(-sig) %>%
+    rename(estimate.sensitive = estimate, p.sensitive = p.value, ci.sensitive = CI)
+
+model.more_disliked.params <- tidy(model.more_disliked, exponentiate = TRUE) %>%
+    select(cols) %>%
+    mutate(sig = case_when(
+        p.value < 0.001 ~ "***", p.value < 0.01 ~ "**", p.value < 0.05 ~ "*", p.value <= 0.1 ~ "+",
+        TRUE ~ "")) %>%
+    mutate(CI = toffee_tbl(model.more_disliked)$CI) %>%
+    mutate(estimate = paste0(as.character(round(estimate, 3)), sig)) %>%
+    select(-sig) %>%
+    rename(estimate.more_disliked = estimate, p.more_disliked = p.value, ci.more_disliked = CI)
+
+model.sensitive.params <- tidy(model.sensitive, exponentiate = TRUE) %>%
+    select(cols) %>%
+    mutate(sig = case_when(
+        p.value < 0.001 ~ "***", p.value < 0.01 ~ "**", p.value < 0.05 ~ "*", p.value <= 0.1 ~ "+",
+        TRUE ~ "")) %>%
+    mutate(CI = toffee_tbl(model.sensitive)$CI) %>%
+    mutate(estimate = paste0(as.character(round(estimate, 3)), sig)) %>%
+    select(-sig) %>%
+    rename(estimate.sensitive = estimate, p.sensitive = p.value, ci.sensitive = CI)
+
+model.opportunity.params <- tidy(model.opportunity, exponentiate = TRUE) %>%
+    select(cols) %>%
+    mutate(sig = case_when(
+        p.value < 0.001 ~ "***", p.value < 0.01 ~ "**", p.value < 0.05 ~ "*", p.value <= 0.1 ~ "+",
+        TRUE ~ "")) %>%
+    mutate(CI = toffee_tbl(model.opportunity)$CI) %>%
+    mutate(estimate = paste0(as.character(round(estimate, 3)), sig)) %>%
+    select(-sig) %>%
+    rename(estimate.opportunity = estimate, p.opportunity = p.value, ci.opportunity = CI)
+
+model.healthcare.params <- tidy(model.healthcare, exponentiate = TRUE) %>%
+    select(cols) %>%
+    mutate(sig = case_when(
+        p.value < 0.001 ~ "***", p.value < 0.01 ~ "**", p.value < 0.05 ~ "*", p.value <= 0.1 ~ "+",
+        TRUE ~ "")) %>%
+    mutate(CI = toffee_tbl(model.healthcare)$CI) %>%
+    mutate(estimate = paste0(as.character(round(estimate, 3)), sig)) %>%
+    select(-sig) %>%
+    rename(estimate.healthcare = estimate, p.healthcare = p.value, ci.healthcare = CI)
+
+# join both params together
+params.list.finegrained <- list(model.prohibited.params, model.deceptive.params, model.clickbait.params, model.more_disliked.params,
+                    model.financial.params, model.sensitive.params, model.opportunity.params,
+                    model.healthcare.params)
+all.params.finegrained <- Reduce(function(x, y, ...) merge(x, y, by='term', ...), params.list.finegrained)
+```
+
+```{r run this for paper-version of the table}
+model.prohibited.params <- tidy(model.prohibited, exponentiate = TRUE) %>%
+    select(cols) %>%
+    mutate(CI = toffee_tbl(model.prohibited)$CI) %>%
+    # decorate significance level
+    mutate(estimate.prohibited = case_when(
+        p.value < 0.001 ~ paste0("\\textbf{", as.character(round(estimate, 3)), "}$^{***}$"),
+        p.value < 0.01 ~ paste0("\\textbf{", as.character(round(estimate, 3)), "}$^{**}$"),
+        p.value < 0.05 ~ paste0("\\textbf{", as.character(round(estimate, 3)), "}$^*$"),
+        p.value <= 0.1 ~ paste0(as.character(round(estimate, 3)), "$^+$"),
+        TRUE ~ as.character(round(estimate, 3))
+    )) %>%
+    # decorate significance level a line below
+    mutate(estimate.prohibited = paste0("\\shortstack{", estimate.prohibited,
+                                        "\\\\ \\footnotesize{", CI ,"}}")) %>%
+    select(-CI, -p.value, -estimate)
+
+model.deceptive.params <- tidy(model.deceptive, exponentiate = TRUE) %>%
+    select(cols) %>%
+    mutate(CI = toffee_tbl(model.deceptive)$CI) %>%
+    # decorate significance level
+    mutate(estimate.deceptive = case_when(
+        p.value < 0.001 ~ paste0("\\textbf{", as.character(round(estimate, 3)), "}$^{***}$"),
+        p.value < 0.01 ~ paste0("\\textbf{", as.character(round(estimate, 3)), "}$^{**}$"),
+        p.value < 0.05 ~ paste0("\\textbf{", as.character(round(estimate, 3)), "}$^*$"),
+        p.value <= 0.1 ~ paste0(as.character(round(estimate, 3)), "$^+$"),
+        TRUE ~ as.character(round(estimate, 3))
+    )) %>%
+    # decorate significance level a line below
+    mutate(estimate.deceptive = paste0("\\shortstack{", estimate.deceptive,
+                                        "\\\\ \\footnotesize{", CI ,"}}")) %>%
+    select(-CI, -p.value, -estimate)
+
+model.clickbait.params <- tidy(model.clickbait, exponentiate = TRUE) %>%
+    select(cols) %>%
+    mutate(CI = toffee_tbl(model.clickbait)$CI) %>%
+    # decorate significance level
+    mutate(estimate.clickbait = case_when(
+        p.value < 0.001 ~ paste0("\\textbf{", as.character(round(estimate, 3)), "}$^{***}$"),
+        p.value < 0.01 ~ paste0("\\textbf{", as.character(round(estimate, 3)), "}$^{**}$"),
+        p.value < 0.05 ~ paste0("\\textbf{", as.character(round(estimate, 3)), "}$^*$"),
+        p.value <= 0.1 ~ paste0(as.character(round(estimate, 3)), "$^+$"),
+        TRUE ~ as.character(round(estimate, 3))
+    )) %>%
+    # decorate significance level a line below
+    mutate(estimate.clickbait = paste0("\\shortstack{", estimate.clickbait,
+                                        "\\\\ \\footnotesize{", CI ,"}}")) %>%
+    select(-CI, -p.value, -estimate)
+
+model.financial.params <- tidy(model.financial, exponentiate = TRUE) %>%
+    select(cols) %>%
+    mutate(CI = toffee_tbl(model.financial)$CI) %>%
+    # decorate significance level
+    mutate(estimate.financial = case_when(
+        p.value < 0.001 ~ paste0("\\textbf{", as.character(round(estimate, 3)), "}$^{***}$"),
+        p.value < 0.01 ~ paste0("\\textbf{", as.character(round(estimate, 3)), "}$^{**}$"),
+        p.value < 0.05 ~ paste0("\\textbf{", as.character(round(estimate, 3)), "}$^*$"),
+        p.value <= 0.1 ~ paste0(as.character(round(estimate, 3)), "$^+$"),
+        TRUE ~ as.character(round(estimate, 3))
+    )) %>%
+    # decorate significance level a line below
+    mutate(estimate.financial = paste0("\\shortstack{", estimate.financial,
+                                        "\\\\ \\footnotesize{", CI ,"}}")) %>%
+    select(-CI, -p.value, -estimate)
+
+model.sensitive.params <- tidy(model.sensitive, exponentiate = TRUE) %>%
+    select(cols) %>%
+    mutate(CI = toffee_tbl(model.sensitive)$CI) %>%
+    # decorate significance level
+    mutate(estimate.sensitive = case_when(
+        p.value < 0.001 ~ paste0("\\textbf{", as.character(round(estimate, 3)), "}$^{***}$"),
+        p.value < 0.01 ~ paste0("\\textbf{", as.character(round(estimate, 3)), "}$^{**}$"),
+        p.value < 0.05 ~ paste0("\\textbf{", as.character(round(estimate, 3)), "}$^*$"),
+        p.value <= 0.1 ~ paste0(as.character(round(estimate, 3)), "$^+$"),
+        TRUE ~ as.character(round(estimate, 3))
+    )) %>%
+    # decorate significance level a line below
+    mutate(estimate.sensitive = paste0("\\shortstack{", estimate.sensitive,
+                                        "\\\\ \\footnotesize{", CI ,"}}")) %>%
+    select(-CI, -p.value, -estimate)
+
+model.more_disliked.params <- tidy(model.more_disliked, exponentiate = TRUE) %>%
+    select(cols) %>%
+    mutate(CI = toffee_tbl(model.more_disliked)$CI) %>%
+    # decorate significance level
+    mutate(estimate.more_disliked = case_when(
+        p.value < 0.001 ~ paste0("\\textbf{", as.character(round(estimate, 3)), "}$^{***}$"),
+        p.value < 0.01 ~ paste0("\\textbf{", as.character(round(estimate, 3)), "}$^{**}$"),
+        p.value < 0.05 ~ paste0("\\textbf{", as.character(round(estimate, 3)), "}$^*$"),
+        p.value <= 0.1 ~ paste0(as.character(round(estimate, 3)), "$^+$"),
+        TRUE ~ as.character(round(estimate, 3))
+    )) %>%
+    # decorate significance level a line below
+    mutate(estimate.more_disliked = paste0("\\shortstack{", estimate.more_disliked,
+                                        "\\\\ \\footnotesize{", CI ,"}}")) %>%
+    select(-CI, -p.value, -estimate)
+
+model.opportunity.params <- tidy(model.opportunity, exponentiate = TRUE) %>%
+    select(cols) %>%
+    mutate(CI = toffee_tbl(model.opportunity)$CI) %>%
+    # decorate significance level
+    mutate(estimate.opportunity = case_when(
+        p.value < 0.001 ~ paste0("\\textbf{", as.character(round(estimate, 3)), "}$^{***}$"),
+        p.value < 0.01 ~ paste0("\\textbf{", as.character(round(estimate, 3)), "}$^{**}$"),
+        p.value < 0.05 ~ paste0("\\textbf{", as.character(round(estimate, 3)), "}$^*$"),
+        p.value <= 0.1 ~ paste0(as.character(round(estimate, 3)), "$^+$"),
+        TRUE ~ as.character(round(estimate, 3))
+    )) %>%
+    # decorate significance level a line below
+    mutate(estimate.opportunity = paste0("\\shortstack{", estimate.opportunity,
+                                        "\\\\ \\footnotesize{", CI ,"}}")) %>%
+    select(-CI, -p.value, -estimate)
+
+model.healthcare.params <- tidy(model.healthcare, exponentiate = TRUE) %>%
+    select(cols) %>%
+    mutate(CI = toffee_tbl(model.healthcare)$CI) %>%
+    # decorate significance level
+    mutate(estimate.healthcare = case_when(
+        p.value < 0.001 ~ paste0("\\textbf{", as.character(round(estimate, 3)), "}$^{***}$"),
+        p.value < 0.01 ~ paste0("\\textbf{", as.character(round(estimate, 3)), "}$^{**}$"),
+        p.value < 0.05 ~ paste0("\\textbf{", as.character(round(estimate, 3)), "}$^*$"),
+        p.value <= 0.1 ~ paste0(as.character(round(estimate, 3)), "$^+$"),
+        TRUE ~ as.character(round(estimate, 3))
+    )) %>%
+    # decorate significance level a line below
+    mutate(estimate.healthcare = paste0("\\shortstack{", estimate.healthcare,
+                                        "\\\\ \\footnotesize{", CI ,"}}")) %>%
+    select(-CI, -p.value, -estimate)
+
+# join both params together
+params.list.finegrained <- list(model.prohibited.params, model.deceptive.params, model.clickbait.params, model.more_disliked.params,
+                    model.financial.params, model.sensitive.params, model.opportunity.params,
+                    model.healthcare.params)
+all.params.finegrained <- Reduce(function(x, y, ...) merge(x, y, by='term', ...), params.list.finegrained)
+
+#  ==== PAPER TABLE, SECTION 5.1 ==== 
+# print(xtable(model.prohibited.params), sanitize.text.function=identity)
+print(xtable(
+    all.params.finegrained %>%
+    select(term, estimate.prohibited, estimate.deceptive, 
+           estimate.clickbait, estimate.financial,
+           estimate.sensitive, estimate.more_disliked,
+           estimate.opportunity, estimate.healthcare)
+), sanitize.text.function=identity)
+# print(latexified, sanitize.text.fun)
+
+# N
+print(paste(dim(sub_neutral_prohibited)[1], '&', dim(sub_neutral_deceptive)[1], '&', dim(sub_neutral_clickbait)[1], '&',
+      dim(sub_neutral_financial)[1], '&', dim(sub_neutral_sensitive)[1], '&', dim(problematic_neutral_only[1]), '&',
+      dim(neutral_opportunity_only)[1], '&', dim(neutral_healthcare_only)[1]))
+# R^2
+print(paste(r.squaredGLMM(model.prohibited)[1,2], '&', r.squaredGLMM(model.deceptive)[1,2], '&', r.squaredGLMM(model.clickbait)[1,2], '&',
+      r.squaredGLMM(model.financial)[1,2], '&', r.squaredGLMM(model.sensitive)[1,2], '&', r.squaredGLMM(model.more_disliked)[1,2], '&',
+      r.squaredGLMM(model.opportunity)[1,2], '&', r.squaredGLMM(model.healthcare)[1,2]))
+```

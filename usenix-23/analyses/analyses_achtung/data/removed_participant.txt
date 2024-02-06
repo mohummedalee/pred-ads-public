@@ -1,0 +1,12 @@
+372771 was one of the top consumers of problematic ads but has been removed from active PID list, becuase apparently they're not from US, where we hired people. They were getting ads targeted for home location in Nigeria. 577540 are also Nigerian.
+
+Also removed 755682 and 266463 because they are from India
+
+
+% ================== RETIRED NOTES for P1: PID 577540  ====================
+% >>>>>>>>>>>> This participant was kicked out because they were non-US
+ % {6263174056546: ['interested', 'clear', 'filterable', 'dont-dislike'], 23849383371840442: ['interested', 'clear', 'dont-dislike'], 23850173323600654: ['filterable', 'scam', 'irrelevant'], 23849188810280422: ['filterable', 'clear', 'interested', 'like-design', 'dont-dislike'], 23849610325800066: ['filterable', 'clear', 'amusing', 'dont-dislike'], 6274701558760: ['dont-like', 'scam', 'irrelevant'], 23849423922890626: ['clear', 'like-design', 'filterable', 'dont-dislike'], 23849547409160533: ['dont-like', 'scam', 'dislike-product', 'irrelevant'], 6268465731827: ['clear', 'filterable', 'scam', 'dislike-design', 'irrelevant'], 6284278947835: ['dont-like', 'irrelevant', 'scam'], 23850346668800302: ['clear', 'filterable', 'dont-dislike'], 23849820499470388: ['dont-like', 'scam', 'irrelevant', 'dislike-design']}
+
+% Bybit: 23849188810280422, Decentraland: 6263174056546
+% Kuala Lumpur Silent Trader: 6268465731827, rent your Gmail: 23850173323600654
+% ========================= NOTES END ==============================================

@@ -1,0 +1,59 @@
+##Code for setting up the document
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(xtable)
+library(tidyr)
+library(broom)
+library(ordinal)
+library(toffee)
+make_model_tbl <- function(model){
+  tidy(model) %>%
+    mutate(star = ifelse(p.value < 0.05, "*", "")) %>%
+    mutate(O.R. = exp(estimate)) %>%
+    mutate(p.value = ifelse(p.value < 0.001, "<0.001", as.character(round(p.value, 3)))) %>%
+    mutate(p.value = paste0(p.value, star)) %>%
+    mutate(C.I. = CI_fmt(estimate, std.error)) %>%
+    dplyr::select(term, O.R., C.I., p.value)
+}
+CI_fmt <- Vectorize(function(m, se) {
+  lower <- round(exp(m - 1.96 * se), 2)
+  upper <- round(exp(m + 1.96 * se), 2)
+  paste0("[", lower, ", ", upper, "]")
+})
+
+makeCI <- function(model, sigdigits = 2) {
+  tidy(model) %>%
+    mutate(CI = CI_fmt(estimate, std.error))
+}
+```
+``` {r loading_data}
+data = read.csv('relevance_v_targeting.csv')
+data = data %>% mutate(
+    custom = (custom == 1),
+    interests = (n_interests > 0)
+)
+
+adcodes = read.csv('ad_codes_binary.csv')
+```
+
+```{r model_fitting}
+# Relevance ~ targeting method (none, interests, custom) + (1|id)
+relevance_targeting = clmm(factor(relevance) ~ custom + interests + (1|pid), data = data)
+make_model_tbl(relevance_targeting)
+
+relevance_targeting_linear_interest = clmm(factor(relevance) ~ custom + n_interests + (1|pid), data = data)
+make_model_tbl(relevance_targeting_linear_interest)
+
+relevance_targeting_locgran = clmm(factor(relevance) ~ custom + interests + city + region + (1|pid), data = data)
+make_model_tbl(relevance_targeting_locgran)
+```
+
+```{r relevance_by_code}
+data_w_codes <- merge(data, adcodes, by='adid', all=FALSE)
+relevance_codes <- clmm(factor(relevance) ~ opportunity + healthcare + sensitive + financial + prohibited + harmful + clickbait + (1|pid), data=data_w_codes)
+make_model_tbl(relevance_codes)
+
+relevance_targeting_codes <- clmm(factor(relevance) ~ custom + interests + opportunity + healthcare + sensitive + financial + prohibited + harmful + clickbait + (1|pid), data=data_w_codes)
+make_model_tbl(relevance_targeting_codes)
+```

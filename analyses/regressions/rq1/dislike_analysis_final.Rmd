@@ -1,0 +1,219 @@
+---
+title: "dislike_analysis_updated"
+output: html_document
+date: '2022-08-09'
+---
+
+
+```{r setup, include=FALSE}
+library(dplyr)
+library(ggplot2)
+library(toffee)
+library(lme4)
+library(tidyr)
+library(xtable)
+library(MuMIn)
+library(broom)
+library(broom.mixed)
+
+make_model_tbl <- function(model){
+  tidy(model) %>%
+    mutate(star = ifelse(p.value < 0.05, "*", "")) %>%
+    mutate(O.R. = exp(estimate)) %>%
+    mutate(p.value = ifelse(p.value < 0.001, "<0.001", as.character(round(p.value, 3)))) %>%
+    mutate(p.value = paste0(p.value, star)) %>%
+    mutate(C.I. = CI_fmt(estimate, std.error)) %>%
+    dplyr::select(term, O.R., C.I., p.value)
+}
+```
+
+
+```{r loading data}
+data_harms <- read.csv('../ad_dislike_data_harms.csv')
+
+# remove ads that are only financial/healthcare etc. related and not deceptive
+# nonproblematic_other <- data_all$code_other & !(data_all$clickbait | data_all$prohibited | data_all$harmful)
+# data_harms <- data_all[!nonproblematic_other,] %>% select(-code_other)
+# note to self: I've double-checked that there were 0 code_other at this point
+
+# forget it, not removing anything. including code_other might be important to say
+# that scams etc. are disliked more than just healthcare stuff
+
+codes_only <- c('benign', 'sensitive', 'prohibited', 'harmful', 'clickbait', 'code_other')
+print(colSums(data_harms[,codes_only]))
+
+sprintf("Deceptive: %i", sum(data_harms['prohibited'] | data_harms['clickbait'] | data_harms['harmful']))
+
+# collapse sensitive into code_other and re-run dislike model
+# this is useful if we ignore sensitive from this paper and focus on deceptive ads
+data_harms_sensitive_coll <- 
+    data_harms %>%
+    mutate(code_other = as.integer(data_harms$code_other | data_harms$sensitive)) %>%
+    select(-sensitive)
+```
+
+```{r proportion testing of like vs. dislike}
+benign = subset(data_harms_sensitive_coll, benign == 1)
+other = subset(data_harms_sensitive_coll, code_other == 1)
+deceptive = subset(data_harms_sensitive_coll, harmful == 1 | prohibited == 1 | clickbait == 1)
+
+n_benign = dim(benign)[1]
+n_deceptive = dim(deceptive)[1]
+n_other = dim(other)[1]
+
+sprintf("Benign: %i, Deceptive: %i, Other: %i",
+        n_benign, n_deceptive, n_other)
+
+benign_disliked = dim(subset(benign, general_dislike == 1))[1]
+deceptive_disliked = dim(subset(deceptive, general_dislike == 1))[1]
+other_disliked = dim(subset(other, general_dislike == 1))[1]
+
+benign_liked = dim(subset(benign, general_like == 1))[1]
+deceptive_liked = dim(subset(deceptive, general_like == 1))[1]
+other_liked = dim(subset(other, general_like == 1))[1]
+
+# ==== step 1: compare dislike proportions ====
+# omnibus test: SIGNIFICANT
+# X-squared = 108.55, df = 2, p-value < 2.2e-16
+prop.test(c(benign_disliked, deceptive_disliked, other_disliked),
+          c(n_benign, n_deceptive, n_other))
+
+# pairwise tests: deceptive vs. benign: SIGNIFICANT
+# X-squared = 102.73, df = 1, p-value < 2.2e-16
+prop.test(c(benign_disliked, deceptive_disliked),
+          c(n_benign, n_deceptive))
+# deceptive vs. other: SIGNIFICANT
+# X-squared = 45.947, df = 1, p-value = 1.215e-11
+prop.test(c(other_disliked, deceptive_disliked),
+          c(n_other, n_deceptive))
+
+# ==== step 2: compare like proportions ====
+# omnibus test: SIGNIFICANT
+# X-squared = 101.16, df = 2, p-value < 2.2e-16
+prop.test(c(benign_liked, deceptive_liked, other_liked),
+          c(n_benign, n_deceptive, n_other))
+
+# pairwise tests: deceptive vs. benign: SIGNIFICANT
+# X-squared = 92.226, df = 1, p-value < 2.2e-16
+prop.test(c(benign_liked, deceptive_liked),
+          c(n_benign, n_deceptive))
+# other vs. deceptive: SIGNIFICANT
+# X-squared = 39.891, df = 1, p-value = 2.685e-10
+prop.test(c(other_liked, deceptive_liked),
+          c(n_other, n_deceptive))
+```
+
+
+```{r dislike based on ad type}
+# reference is benign here since it's excluded
+dislike_deceptive_mlm <- lme4::glmer(scam_dislike ~ prohibited + harmful + clickbait + sensitive + code_other + (1|pid),
+                          data=data_harms, family = binomial())
+toffee_tbl(dislike_deceptive_mlm)
+
+# show R^2 for this model
+print(r.squaredGLMM(dislike_deceptive_mlm))
+
+# NOTE: not converting this to a categorical model because multiple codes can exist at the same time
+# our coding isn't necessarily categorical
+```
+
+
+```{r dislike model but with sensitive collapsed}
+
+dislike_deceptive_mlm_sensitive_coll <- 
+    lme4::glmer(scam_dislike ~ prohibited + harmful + clickbait + code_other + (1|pid), data=data_harms_sensitive_coll, family = binomial())
+toffee_tbl(dislike_deceptive_mlm_sensitive_coll)
+    
+```
+
+
+```{r dislike model but more broadly}
+# If we were to inform the list of "undesirable" ads from the users, we would have to drop
+# preconceived notions of "deceptive" ads
+data_all <- read.csv('../ad_dislike_data.csv')
+
+# which codes do users pick "don't like" for?
+undesirable_general_dislike <- lme4::glmer(
+    general_dislike ~ opportunity + healthcare + sensitive + financial + prohibited + harmful +
+    + clickbait + political + (1|pid), data=data_all, family=binomial()
+)
+toffee_tbl(undesirable_general_dislike)
+
+# which codes do users pick specific dislike reasons for?
+undesirable_dislike_reasons <- lme4::glmer(
+    any_dislike_reason ~ opportunity + healthcare + sensitive + financial + prohibited + harmful +
+    + clickbait + political + (1|pid), data=data_all, family=binomial()
+)
+toffee_tbl(undesirable_dislike_reasons)
+
+# which codes do users dislike for arguably more consequential reasons (scam_dislike)
+undesirable_scam_dislike <- lme4::glmer(
+    scam_dislike ~ opportunity + healthcare + sensitive + financial + prohibited + harmful +
+    + clickbait + political + (1|pid), data=data_all, family=binomial()
+)
+toffee_tbl(undesirable_scam_dislike)
+
+# which codes do users dislike for scam_dislike reasons + disliking the product or advertiser
+# (we are trying to understand "dislike" after all)
+undesirable_scam_dislike_exp <- lme4::glmer(
+    scam_dislike_exp ~ opportunity + healthcare + sensitive + financial + prohibited + harmful + clickbait + political + (1|pid), data=data_all, family=binomial()
+)
+toffee_tbl(undesirable_scam_dislike_exp)
+```
+``` {r codes as a function of dislike reason}
+# which reasons for disliking are most strongly associated with a code?
+# regress on code ~ reason_1 + reason_2 + ... to find out
+data_full_reasons <- read.csv("../ad_dislike_data_full.csv")
+
+# which reasons are most common for disliking opportunity ads?
+opportunity_dislike <- glmer(
+    opportunity ~ unclear + irrelevant + pushy + dislike_clickbait + scam + dislike_product + dislike_design + uncomfortable + dislike_advertiser + dislike_political + (1|pid), data=data_full_reasons, family=binomial()
+)
+toffee_tbl(opportunity_dislike)
+
+## survey_codelist = ["Opportunity", "Healthcare", "Sensitive", "Financial", "Potentially Prohibited",
+## "Potentially Harmful", "Clickbait", "Political"]
+
+# healthcare
+healthcare_dislike <- glmer(
+    healthcare ~ unclear + irrelevant + pushy + dislike_clickbait + scam + dislike_product + dislike_design + uncomfortable + dislike_advertiser + dislike_political + (1|pid), data=data_full_reasons, family=binomial()
+)
+toffee_tbl(healthcare_dislike)
+
+# sensitive
+sensitive_dislike <- glmer(
+    sensitive ~ unclear + irrelevant + pushy + dislike_clickbait + scam + dislike_product + dislike_design + uncomfortable + dislike_advertiser + dislike_political + (1|pid), data=data_full_reasons, family=binomial()
+)
+toffee_tbl(sensitive_dislike)
+
+# TODO: financial
+financial_dislike <- glmer(
+    financial ~ unclear + irrelevant + pushy + dislike_clickbait + scam + dislike_product + dislike_design + uncomfortable + dislike_advertiser + dislike_political + (1|pid), data=data_full_reasons, family=binomial()
+)
+toffee_tbl(financial_dislike)
+
+# prohibited
+prohibited_dislike <- glmer(
+    prohibited ~ unclear + irrelevant + pushy + dislike_clickbait + scam + dislike_product + dislike_design + uncomfortable + dislike_advertiser + dislike_political + (1|pid), data=data_full_reasons, family=binomial()
+)
+toffee_tbl(prohibited_dislike)
+
+# harmful
+harmful_dislike <- glmer(
+    harmful ~ unclear + irrelevant + pushy + dislike_clickbait + scam + dislike_product + dislike_design + uncomfortable + dislike_advertiser + dislike_political + (1|pid), data=data_full_reasons, family=binomial()
+)
+toffee_tbl(harmful_dislike)
+
+# clickbait
+clickbait_dislike <- glmer(
+    clickbait ~ unclear + irrelevant + pushy + dislike_clickbait + scam + dislike_product + dislike_design + uncomfortable + dislike_advertiser + dislike_political + (1|pid), data=data_full_reasons, family=binomial()
+)
+toffee_tbl(clickbait_dislike)
+
+# political, whatever, too few of these in the data
+```
+
+
+
+
+

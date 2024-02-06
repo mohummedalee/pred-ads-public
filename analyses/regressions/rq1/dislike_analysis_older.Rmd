@@ -1,0 +1,44 @@
+```{r dummy cell}
+### ================ OLDER ANALYSES BELOW ======================
+```
+
+```{r model based on ad code, echo=FALSE}
+# mixed effects model
+dislike_by_codes_mixed = lme4::glmer(dislike ~ opportunity + healthcare + sensitive + financial + prohibited + harmful + clickbait + (1|pid), data=data, family=binomial())
+toffee_tbl(dislike_by_codes_mixed)
+print(r.squaredGLMM(dislike_by_codes_mixed))
+
+# healthcare and sensitive interacting
+dislike_by_codes_mixed_int = lme4::glmer(dislike ~ opportunity + healthcare*sensitive + healthcare + sensitive + financial + prohibited + harmful + clickbait + (1|pid), data = data, family = binomial())
+toffee_tbl(dislike_by_codes_mixed_int)
+print(r.squaredGLMM(dislike_by_codes_mixed_int))
+
+# without mixed effects
+dislike_by_codes = glm(dislike ~ opportunity + healthcare + sensitive + financial + prohibited + harmful + clickbait, data=data, family=binomial())
+toffee_tbl(dislike_by_codes)
+
+# TODO: how do we compare these to categorically say the mixed model is better?
+```
+
+```{r visualizing models}
+fits <- augment(dislike_by_codes_mixed)
+ggplot(fits, aes(healthcare, .fitted)) + 
+  geom_point() +
+  geom_line(aes(y = .fitted))
+```
+
+```{r model based on ad code and demographics}
+dems <- read.csv('../../db-processing/participant-demographics/ALLDEMS.csv')
+dems_dislike <- merge(data, dems)
+dislike_by_dem = glmer(dislike ~ (1|pid) + woman + black + hispanic + high_ed + high_income, data = dems_dislike, family = binomial())
+toffee_tbl(dislike_by_dem)
+print(r.squaredGLMM(dislike_by_dem))
+
+dislike_by_dem_rand_pid_ed = glmer(dislike ~ (high_ed|pid) + woman + black + hispanic + high_income, data = dems_dislike, family = binomial())
+make_model_tbl(dislike_by_dem_rand_pid_ed)
+
+# predicting on both demographics and ad codes
+dislike_codes_dem <- glmer(dislike ~ (1|pid) + woman + black + hispanic + high_ed + opportunity + healthcare + financial + prohibited + harmful + clickbait, family = binomial(), data = dems_dislike)
+make_model_tbl(dislike_codes_dem)
+print(r.squaredGLMM(dislike_codes_dem))
+```

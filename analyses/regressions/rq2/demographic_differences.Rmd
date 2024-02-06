@@ -1,0 +1,163 @@
+---
+title: "DemographicDifference"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(toffee)
+library(xtable)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r load_data}
+data = read.csv("dem_regression_data.csv")
+data = data %>% mutate(woman = female) %>% select(-female) %>% select(-id) %>% mutate(white = as.integer(!black & !hispanic & !asian))
+```
+
+```{r utils}
+make_model_tbl <- function(model){
+  tidy(model) %>%
+    mutate(star = ifelse(p.value < 0.05, "*", "")) %>%
+    mutate(O.R. = exp(estimate)) %>%
+    mutate(p.value = ifelse(p.value < 0.001, "<0.001", as.character(round(p.value, 3)))) %>%
+    mutate(p.value = paste0(p.value, star)) %>%
+    mutate(C.I. = CI_fmt(estimate, std.error)) %>%
+    dplyr::select(term, O.R., C.I., p.value)
+}
+```
+
+``` {r debugging}
+testing_model = glm(p_benign ~ p_financial, data=data)
+toffee_tbl(testing_model) # p_benign is significant
+```
+
+```{r models}
+
+demographics_benign_linear = 
+  lm(
+    (p_benign)~
+      woman+
+      older+
+      high_ed+
+      black+
+      hispanic, #+
+      #asian,
+    data = data) 
+# xtable(toffee_tbl(demographics_benign_linear))
+toffee_tbl(demographics_benign_linear)
+print(summary(demographics_benign_linear))
+
+demographics_benign_binomial = 
+  glm(
+    (p_benign>0.75)~
+      woman+
+      older+
+      high_ed+
+      black+
+      hispanic+
+     asian
+    ,
+    data = data, family=binomial()) 
+# xtable(toffee_tbl(demographics_benign_binomial))
+toffee_tbl(demographics_benign_binomial)
+
+demographics_benign_bad_binomial = 
+  glm(
+    (p_benign<0.5)~
+      woman+
+      older+
+      high_ed+
+      black+
+      hispanic+
+     asian
+    ,
+    data = data, family=binomial()) 
+toffee_tbl(demographics_benign_bad_binomial)
+```
+
+```{r healthcare}
+demographics_healthcare_linear = 
+  glm(
+    (p_healthcare)~
+      woman+
+      older+
+      high_ed+
+      black+
+      hispanic+
+      asian,
+    data = data) 
+toffee_tbl(demographics_healthcare_linear)
+```
+```{r finance}
+demographics_finance_linear = 
+  glm(
+    (p_financial)~
+      woman+
+      older+
+      high_ed+
+      black+
+      hispanic+
+      asian,
+    data = data) 
+toffee_tbl(demographics_finance_linear)
+```
+
+
+```{r harmful}
+demographics_harmful_binomial = 
+  glm(
+    (p_harmful > 0)~
+      woman+
+      older+
+      high_ed+
+      black+
+      hispanic+
+      asian,
+    data = data, family = binomial()) 
+toffee_tbl(demographics_harmful_binomial)
+
+demograpihcs_harmful_linear = 
+    glm(p_harmful ~
+        woman+
+        older+
+        high_ed+
+        black+
+        hispanic+
+        asian+
+        high_income,
+    data=data)
+toffee_tbl(demograpihcs_harmful_linear)
+```
+
+```{r clickbait}
+demographics_clickbait_linear = 
+    lm(p_clickbait ~
+        woman+
+        older+
+        high_ed+
+        black+
+        hispanic+
+        asian+
+        high_income,
+    data=data)
+toffee_tbl(demographics_clickbait_linear)
+print(summary(demographics_clickbait_linear))
+
+demographics_clickbait_linear_white = 
+    lm(p_clickbait ~
+        woman+
+        older+
+        high_ed+
+        white+
+        high_income,
+    data=data)
+toffee_tbl(demographics_clickbait_linear_white)
+print(summary(demographics_clickbait_linear_white))
+```
